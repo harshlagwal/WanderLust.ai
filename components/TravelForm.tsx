@@ -1,0 +1,259 @@
+import React, { useState } from 'react';
+import { TripFormData } from '../types';
+
+interface Props {
+  formData: TripFormData;
+  setFormData: React.Dispatch<React.SetStateAction<TripFormData>>;
+  onSubmit: () => void;
+  loading: boolean;
+}
+
+const TravelForm: React.FC<Props> = ({ formData, setFormData, onSubmit, loading }) => {
+  const [currentLocationSuggestions, setCurrentLocationSuggestions] = useState<string[]>([]);
+  const [destinationSuggestions, setDestinationSuggestions] = useState<string[]>([]);
+  const [showCurrentSuggestions, setShowCurrentSuggestions] = useState(false);
+  const [showDestSuggestions, setShowDestSuggestions] = useState(false);
+  const debounceTimeout = React.useRef<NodeJS.Timeout | null>(null);
+
+  const handleChange = (field: keyof TripFormData, value: any) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+  };
+
+  // Autocomplete using Nominatim (OpenStreetMap)
+  const fetchLocationSuggestions = async (query: string, field: 'currentLocation' | 'destination') => {
+    if (query.length < 3) {
+      field === 'currentLocation' ? setCurrentLocationSuggestions([]) : setDestinationSuggestions([]);
+      return;
+    }
+
+    try {
+      // Force India region and English language
+      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5&countrycodes=in&accept-language=en`;
+      const response = await fetch(url, {
+        headers: {
+          'Accept-Language': 'en-US,en;q=0.9',
+          'User-Agent': 'WanderlustAIPlanner/1.2'
+        }
+      });
+      const data = await response.json();
+
+      const suggestions = data.map((item: any) => item.display_name);
+      field === 'currentLocation' ? setCurrentLocationSuggestions(suggestions) : setDestinationSuggestions(suggestions);
+    } catch (err) {
+      console.error('Autocomplete fetch failed:', err);
+    }
+  };
+
+  const debouncedSearch = (query: string, field: 'currentLocation' | 'destination') => {
+    if (debounceTimeout.current) clearTimeout(debounceTimeout.current);
+    debounceTimeout.current = setTimeout(() => {
+      fetchLocationSuggestions(query, field);
+    }, 400); // 400ms debounce
+  };
+
+  const selectSuggestion = (suggestion: string, field: 'currentLocation' | 'destination') => {
+    // Extract city name from full display_name (e.g., "Delhi, India" from "Delhi, National Capital Territory of Delhi, India")
+    const cityName = suggestion.split(',')[0].trim();
+    handleChange(field, cityName);
+    field === 'currentLocation' ? setShowCurrentSuggestions(false) : setShowDestSuggestions(false);
+    field === 'currentLocation' ? setCurrentLocationSuggestions([]) : setDestinationSuggestions([]);
+  };
+
+  const toggleInterest = (interest: string) => {
+    const current = formData.interests;
+    const updated = current.includes(interest)
+      ? current.filter(i => i !== interest)
+      : [...current, interest];
+    handleChange('interests', updated);
+  };
+
+  const interestsList = ['Adventure', 'Culture', 'Food', 'Relaxation', 'Nightlife', 'Family-friendly', 'History', 'Nature'];
+
+  return (
+    <div className="max-w-4xl mx-auto -mt-20 relative z-20 px-4">
+      <div className="glass rounded-2xl p-6 md:p-10 shadow-2xl dark:shadow-blue-900/20">
+        <h2 className="text-3xl font-bold mb-8 text-center bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+          Plan Your Next Adventure
+        </h2>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          {/* Locations */}
+          <div className="relative">
+            <label className="block text-sm font-semibold mb-2 text-slate-700 dark:text-slate-300">Current Location</label>
+            <div className="relative">
+              <span className="absolute left-4 top-3.5 text-slate-400">🏠</span>
+              <input
+                type="text"
+                value={formData.currentLocation}
+                onChange={(e) => {
+                  handleChange('currentLocation', e.target.value);
+                  debouncedSearch(e.target.value, 'currentLocation');
+                  setShowCurrentSuggestions(true);
+                }}
+                onFocus={() => setShowCurrentSuggestions(true)}
+                onBlur={() => setTimeout(() => setShowCurrentSuggestions(false), 200)}
+                placeholder="e.g. Shimla, Dharamshala (enter city, not state)"
+                className="w-full pl-12 pr-4 py-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                required
+              />
+              {showCurrentSuggestions && currentLocationSuggestions.length > 0 && (
+                <div className="absolute z-50 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                  {currentLocationSuggestions.map((suggestion, idx) => (
+                    <div
+                      key={idx}
+                      onClick={() => selectSuggestion(suggestion, 'currentLocation')}
+                      className="px-4 py-2 hover:bg-blue-50 dark:hover:bg-slate-700 cursor-pointer text-sm dark:text-slate-200 border-b border-slate-100 dark:border-slate-700 last:border-0"
+                    >
+                      {suggestion}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="relative">
+            <label className="block text-sm font-semibold mb-2 text-slate-700 dark:text-slate-300">Going Destination</label>
+            <div className="relative">
+              <span className="absolute left-4 top-3.5 text-slate-400">📍</span>
+              <input
+                type="text"
+                value={formData.destination}
+                onChange={(e) => {
+                  handleChange('destination', e.target.value);
+                  debouncedSearch(e.target.value, 'destination');
+                  setShowDestSuggestions(true);
+                }}
+                onFocus={() => setShowDestSuggestions(true)}
+                onBlur={() => setTimeout(() => setShowDestSuggestions(false), 200)}
+                placeholder="e.g. Manali, Shimla"
+                className="w-full pl-12 pr-4 py-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                required
+              />
+              {showDestSuggestions && destinationSuggestions.length > 0 && (
+                <div className="absolute z-50 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                  {destinationSuggestions.map((suggestion, idx) => (
+                    <div
+                      key={idx}
+                      onClick={() => selectSuggestion(suggestion, 'destination')}
+                      className="px-4 py-2 hover:bg-blue-50 dark:hover:bg-slate-700 cursor-pointer text-sm dark:text-slate-200 border-b border-slate-100 dark:border-slate-700 last:border-0"
+                    >
+                      {suggestion}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Dates */}
+          <div>
+            <label className="block text-sm font-semibold mb-2 text-slate-700 dark:text-slate-300">Start Date</label>
+            <input
+              type="date"
+              value={formData.startDate}
+              onChange={(e) => handleChange('startDate', e.target.value)}
+              className="w-full px-4 py-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-blue-500 outline-none"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-semibold mb-2 text-slate-700 dark:text-slate-300">End Date</label>
+            <input
+              type="date"
+              value={formData.endDate}
+              onChange={(e) => handleChange('endDate', e.target.value)}
+              className="w-full px-4 py-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-blue-500 outline-none"
+            />
+          </div>
+
+          {/* Travelers & Budget */}
+          <div>
+            <label className="block text-sm font-semibold mb-2 text-slate-700 dark:text-slate-300">Travelers: {formData.travelers}</label>
+            <input
+              type="range"
+              min="1" max="10"
+              value={formData.travelers}
+              onChange={(e) => handleChange('travelers', parseInt(e.target.value))}
+              className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer dark:bg-slate-700 accent-blue-500"
+            />
+            <div className="flex justify-between text-xs text-slate-500 mt-1">
+              <span>1</span>
+              <span>10</span>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-semibold mb-2 text-slate-700 dark:text-slate-300">
+              Budget: <span className="text-blue-600 dark:text-blue-400 font-bold">₹{formData.budget.toLocaleString('en-IN')}</span>
+            </label>
+            <input
+              type="range"
+              min="5000" max="500000" step="5000"
+              value={formData.budget}
+              onChange={(e) => handleChange('budget', parseInt(e.target.value))}
+              className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer dark:bg-slate-700 accent-purple-500"
+            />
+          </div>
+
+
+          {/* Interests */}
+          <div className="col-span-1 md:col-span-2">
+            <label className="block text-sm font-semibold mb-3 text-slate-700 dark:text-slate-300">Interests</label>
+            <div className="flex flex-wrap gap-3">
+              {interestsList.map(interest => (
+                <button
+                  key={interest}
+                  onClick={() => toggleInterest(interest)}
+                  className={`px-4 py-2 rounded-full text-sm font-medium transition-all transform hover:scale-105 ${formData.interests.includes(interest)
+                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/30'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700'
+                    }`}
+                >
+                  {interest}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Dietary */}
+          <div className="col-span-1 md:col-span-2">
+            <label className="block text-sm font-semibold mb-2 text-slate-700 dark:text-slate-300">Dietary Restrictions</label>
+            <select
+              value={formData.dietary}
+              onChange={(e) => handleChange('dietary', e.target.value)}
+              className="w-full px-4 py-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-blue-500 outline-none"
+            >
+              <option value="None">None</option>
+              <option value="Vegetarian">Vegetarian</option>
+              <option value="Vegan">Vegan</option>
+              <option value="Gluten-free">Gluten-free</option>
+              <option value="Halal">Halal</option>
+              <option value="Kosher">Kosher</option>
+            </select>
+          </div>
+        </div>
+
+        <button
+          onClick={onSubmit}
+          disabled={loading}
+          className={`w-full mt-8 py-4 rounded-xl text-lg font-bold text-white shadow-xl transition-all transform hover:-translate-y-1 active:scale-95 ${loading
+            ? 'bg-slate-400 cursor-not-allowed'
+            : 'bg-gradient-to-r from-blue-600 to-purple-600 hover:shadow-blue-500/40'
+            }`}
+        >
+          {loading ? (
+            <span className="flex items-center justify-center">
+              <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              Generative AI Thinking...
+            </span>
+          ) : 'Generate Dream Trip ✨'}
+        </button>
+      </div>
+    </div>
+  );
+};
+
+export default TravelForm;
